@@ -15,6 +15,7 @@ from threat_modeling_mcp_server.models.threat_models import (
 )
 from threat_modeling_mcp_server.tools.assumption_manager import assumptions
 from threat_modeling_mcp_server.utils.file_utils import normalize_output_path
+from threat_modeling_mcp_server.utils.batch_utils import batch_add, batch_update, batch_delete
 
 
 # Global dictionaries to store threats and mitigations
@@ -654,41 +655,50 @@ def register_tools(mcp):
     @mcp.tool()
     async def add_threat(
         ctx: Context,
-        threat_source: str,
-        prerequisites: str,
-        threat_action: str,
-        threat_impact: str,
+        threat_source: str = None,
+        prerequisites: str = None,
+        threat_action: str = None,
+        threat_impact: str = None,
         category: Optional[str] = None,
         severity: Optional[str] = None,
         likelihood: Optional[str] = None,
         affected_components: Optional[List[str]] = None,
         affected_assets: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Add a new threat to the model.
+        """Add a new threat to the model. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new threat to the threat model.
+        This tool adds one or more threats to the threat model.
         IMPORTANT: Each text field must be 200 characters or fewer to comply with the Threat Composer schema.
+        For single item: provide threat_source, prerequisites, threat_action, threat_impact directly.
+        For batch: provide a list of threat dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            threat_source: Source of the threat, max 200 chars (e.g., 'external attacker')
-            prerequisites: Prerequisites for the threat, max 200 chars (e.g., 'with access to the network')
-            threat_action: Action performed by the threat, max 200 chars (e.g., 'intercept unencrypted data')
-            threat_impact: Impact of the threat, max 200 chars (e.g., 'exposure of sensitive data')
+            threat_source: Source of the threat, max 200 chars (required for single item mode)
+            prerequisites: Prerequisites for the threat, max 200 chars (required for single item mode)
+            threat_action: Action performed by the threat, max 200 chars (required for single item mode)
+            threat_impact: Impact of the threat, max 200 chars (required for single item mode)
             category: STRIDE category of the threat
             severity: Severity of the threat
             likelihood: Likelihood of the threat
             affected_components: List of component IDs affected by the threat
             affected_assets: List of asset IDs affected by the threat
             tags: List of tags for the threat
+            items: Optional list of threat dicts for batch operation
 
         Returns:
-            A confirmation message with the threat ID
+            A confirmation message with the threat ID(s)
         """
-        return await add_threat_impl(
-            ctx, threat_source, prerequisites, threat_action, threat_impact,
-            category, severity, likelihood, affected_components, affected_assets, tags
+        return await batch_add(
+            ctx, items,
+            {"threat_source": threat_source, "prerequisites": prerequisites,
+             "threat_action": threat_action, "threat_impact": threat_impact,
+             "category": category, "severity": severity, "likelihood": likelihood,
+             "affected_components": affected_components, "affected_assets": affected_assets,
+             "tags": tags},
+            add_threat_impl, "threat"
         )
     
     @mcp.tool()
@@ -734,7 +744,7 @@ def register_tools(mcp):
     @mcp.tool()
     async def update_threat(
         ctx: Context,
-        id: str,
+        id: str = None,
         threat_source: Optional[str] = None,
         prerequisites: Optional[str] = None,
         threat_action: Optional[str] = None,
@@ -746,15 +756,18 @@ def register_tools(mcp):
         affected_components: Optional[List[str]] = None,
         affected_assets: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Update an existing threat.
+        """Update an existing threat. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing threat in the threat model.
+        This tool updates one or more existing threats in the threat model.
         IMPORTANT: Each text field must be 200 characters or fewer to comply with the Threat Composer schema.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of threat dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the threat to update
+            id: ID of the threat to update (required for single item mode)
             threat_source: New source of the threat, max 200 chars
             prerequisites: New prerequisites for the threat, max 200 chars
             threat_action: New action performed by the threat, max 200 chars
@@ -766,63 +779,81 @@ def register_tools(mcp):
             affected_components: New list of component IDs affected by the threat
             affected_assets: New list of asset IDs affected by the threat
             tags: New list of tags for the threat
+            items: Optional list of threat dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_threat_impl(
-            ctx, id, threat_source, prerequisites, threat_action, threat_impact,
-            category, severity, likelihood, status, affected_components, affected_assets, tags
+        return await batch_update(
+            ctx, items,
+            {"id": id, "threat_source": threat_source, "prerequisites": prerequisites,
+             "threat_action": threat_action, "threat_impact": threat_impact,
+             "category": category, "severity": severity, "likelihood": likelihood,
+             "status": status, "affected_components": affected_components,
+             "affected_assets": affected_assets, "tags": tags},
+            update_threat_impl, "threat"
         )
     
     @mcp.tool()
     async def delete_threat(
         ctx: Context,
-        id: str,
+        id: Optional[str] = None,
+        ids: Optional[List[str]] = None,
     ) -> str:
-        """Delete a threat from the model.
+        """Delete a threat from the model. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes a threat from the threat model.
+        This tool deletes one or more threats from the threat model.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the threat to delete
+            id: ID of the threat to delete (required for single item mode)
+            ids: Optional list of threat IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_threat_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_threat_impl, "threat")
     
     @mcp.tool()
     async def add_mitigation(
         ctx: Context,
-        content: str,
+        content: str = None,
         type: Optional[str] = None,
         status: str = "mitigationIdentified",
         implementation_details: Optional[str] = None,
         cost: Optional[str] = None,
         effectiveness: Optional[str] = None,
         metadata: Optional[List[Dict[str, str]]] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Add a new mitigation to the model.
+        """Add a new mitigation to the model. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new mitigation to the threat model.
+        This tool adds one or more mitigations to the threat model.
+        For single item: provide content and optional fields directly.
+        For batch: provide a list of mitigation dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            content: Content of the mitigation
+            content: Content of the mitigation (required for single item mode)
             type: Type of the mitigation
             status: Status of the mitigation
             implementation_details: Implementation details of the mitigation
             cost: Cost of the mitigation
             effectiveness: Effectiveness of the mitigation
             metadata: Metadata for the mitigation
+            items: Optional list of mitigation dicts for batch operation
 
         Returns:
-            A confirmation message with the mitigation ID
+            A confirmation message with the mitigation ID(s)
         """
-        return await add_mitigation_impl(
-            ctx, content, type, status, implementation_details, cost, effectiveness, metadata
+        return await batch_add(
+            ctx, items,
+            {"content": content, "type": type, "status": status,
+             "implementation_details": implementation_details, "cost": cost,
+             "effectiveness": effectiveness, "metadata": metadata},
+            add_mitigation_impl, "mitigation"
         )
     
     @mcp.tool()
@@ -866,7 +897,7 @@ def register_tools(mcp):
     @mcp.tool()
     async def update_mitigation(
         ctx: Context,
-        id: str,
+        id: str = None,
         content: Optional[str] = None,
         type: Optional[str] = None,
         status: Optional[str] = None,
@@ -874,14 +905,17 @@ def register_tools(mcp):
         cost: Optional[str] = None,
         effectiveness: Optional[str] = None,
         metadata: Optional[List[Dict[str, str]]] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Update an existing mitigation.
+        """Update an existing mitigation. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing mitigation in the threat model.
+        This tool updates one or more existing mitigations in the threat model.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of mitigation dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the mitigation to update
+            id: ID of the mitigation to update (required for single item mode)
             content: New content of the mitigation
             type: New type of the mitigation
             status: New status of the mitigation
@@ -889,29 +923,40 @@ def register_tools(mcp):
             cost: New cost of the mitigation
             effectiveness: New effectiveness of the mitigation
             metadata: New metadata for the mitigation
+            items: Optional list of mitigation dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_mitigation_impl(ctx, id, content, type, status, implementation_details, cost, effectiveness, metadata)
+        return await batch_update(
+            ctx, items,
+            {"id": id, "content": content, "type": type, "status": status,
+             "implementation_details": implementation_details, "cost": cost,
+             "effectiveness": effectiveness, "metadata": metadata},
+            update_mitigation_impl, "mitigation"
+        )
     
     @mcp.tool()
     async def delete_mitigation(
         ctx: Context,
-        id: str,
+        id: Optional[str] = None,
+        ids: Optional[List[str]] = None,
     ) -> str:
-        """Delete a mitigation from the model.
+        """Delete a mitigation from the model. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes a mitigation from the threat model.
+        This tool deletes one or more mitigations from the threat model.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the mitigation to delete
+            id: ID of the mitigation to delete (required for single item mode)
+            ids: Optional list of mitigation IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_mitigation_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_mitigation_impl, "mitigation")
     
     @mcp.tool()
     async def link_mitigation_to_threat(

@@ -9,6 +9,7 @@ from threat_modeling_mcp_server.models.threat_actor_models import (
     ThreatActor, ThreatActorLibrary, ThreatActorType, 
     Motivation, CapabilityLevel, ResourceLevel
 )
+from threat_modeling_mcp_server.utils.batch_utils import batch_add, batch_update, batch_delete
 
 
 # Global state
@@ -541,41 +542,51 @@ def register_tools(mcp):
     @mcp.tool()
     async def add_threat_actor(
         ctx: Context,
-        name: str = Field(description="Name of the threat actor"),
-        type: str = Field(description="Type of the threat actor (e.g., 'Insider', 'External', 'Nation-state')"),
-        capability_level: str = Field(description="Capability level of the threat actor (Low, Medium, High)"),
-        motivations: List[str] = Field(description="Motivations of the threat actor (e.g., 'Financial', 'Political', 'Espionage')"),
-        resources: str = Field(description="Resources available to the threat actor (Limited, Moderate, Extensive)"),
+        name: str = Field(default=None, description="Name of the threat actor (required for single item mode)"),
+        type: str = Field(default=None, description="Type of the threat actor (e.g., 'Insider', 'External', 'Nation-state') (required for single item mode)"),
+        capability_level: str = Field(default=None, description="Capability level of the threat actor (Low, Medium, High) (required for single item mode)"),
+        motivations: List[str] = Field(default=None, description="Motivations of the threat actor (e.g., 'Financial', 'Political', 'Espionage') (required for single item mode)"),
+        resources: str = Field(default=None, description="Resources available to the threat actor (Limited, Moderate, Extensive) (required for single item mode)"),
         description: Optional[str] = Field(default=None, description="Description of the threat actor"),
         priority: int = Field(default=0, description="Priority of the threat actor (1-10, 0 means not ranked)"),
         relevance_score: float = Field(default=0.5, description="Relevance score of the threat actor (0.0-1.0)"),
         is_relevant: bool = Field(default=True, description="Whether the threat actor is relevant to the system"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of threat actors to add in batch. Each dict should contain 'name', 'type', 'capability_level', 'motivations', 'resources', and optionally other fields. When provided, individual parameters are ignored."),
     ) -> str:
-        """Add a new threat actor.
+        """Add a new threat actor. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new threat actor to the threat model.
+        This tool adds one or more threat actors to the threat model.
+        For single item: provide name, type, capability_level, motivations, resources directly.
+        For batch: provide a list of threat actor dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            name: Name of the threat actor
-            type: Type of the threat actor (e.g., 'Insider', 'External', 'Nation-state')
-            capability_level: Capability level of the threat actor (Low, Medium, High)
-            motivations: Motivations of the threat actor (e.g., 'Financial', 'Political', 'Espionage')
-            resources: Resources available to the threat actor (Limited, Moderate, Extensive)
+            name: Name of the threat actor (required for single item mode)
+            type: Type of the threat actor (required for single item mode)
+            capability_level: Capability level of the threat actor (required for single item mode)
+            motivations: Motivations of the threat actor (required for single item mode)
+            resources: Resources available to the threat actor (required for single item mode)
             description: Description of the threat actor
             priority: Priority of the threat actor (1-10, 0 means not ranked)
             relevance_score: Relevance score of the threat actor (0.0-1.0)
             is_relevant: Whether the threat actor is relevant to the system
+            items: Optional list of threat actor dicts for batch operation
 
         Returns:
-            A confirmation message with the threat actor ID
+            A confirmation message with the threat actor ID(s)
         """
-        return await add_threat_actor_impl(ctx, name, type, capability_level, motivations, resources, description, priority, relevance_score, is_relevant)
+        return await batch_add(
+            ctx, items,
+            {"name": name, "type": type, "capability_level": capability_level,
+             "motivations": motivations, "resources": resources, "description": description,
+             "priority": priority, "relevance_score": relevance_score, "is_relevant": is_relevant},
+            add_threat_actor_impl, "threat actor"
+        )
 
     @mcp.tool()
     async def update_threat_actor(
         ctx: Context,
-        id: str = Field(description="ID of the threat actor to update"),
+        id: str = Field(default=None, description="ID of the threat actor to update (required for single item mode)"),
         name: Optional[str] = Field(default=None, description="New name of the threat actor"),
         type: Optional[str] = Field(default=None, description="New type of the threat actor"),
         capability_level: Optional[str] = Field(default=None, description="New capability level of the threat actor"),
@@ -585,14 +596,17 @@ def register_tools(mcp):
         priority: Optional[int] = Field(default=None, description="New priority of the threat actor (1-10)"),
         relevance_score: Optional[float] = Field(default=None, description="New relevance score of the threat actor (0.0-1.0)"),
         is_relevant: Optional[bool] = Field(default=None, description="New relevance status of the threat actor"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of threat actors to update in batch. Each dict must contain 'id' and any fields to update. When provided, individual parameters are ignored."),
     ) -> str:
-        """Update an existing threat actor.
+        """Update an existing threat actor. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing threat actor in the threat model.
+        This tool updates one or more existing threat actors in the threat model.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of threat actor dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the threat actor to update
+            id: ID of the threat actor to update (required for single item mode)
             name: New name of the threat actor
             type: New type of the threat actor
             capability_level: New capability level of the threat actor
@@ -602,11 +616,18 @@ def register_tools(mcp):
             priority: New priority of the threat actor (1-10)
             relevance_score: New relevance score of the threat actor (0.0-1.0)
             is_relevant: New relevance status of the threat actor
+            items: Optional list of threat actor dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_threat_actor_impl(ctx, id, name, type, capability_level, motivations, resources, description, priority, relevance_score, is_relevant)
+        return await batch_update(
+            ctx, items,
+            {"id": id, "name": name, "type": type, "capability_level": capability_level,
+             "motivations": motivations, "resources": resources, "description": description,
+             "priority": priority, "relevance_score": relevance_score, "is_relevant": is_relevant},
+            update_threat_actor_impl, "threat actor"
+        )
 
     @mcp.tool()
     async def list_threat_actors(
@@ -649,20 +670,24 @@ def register_tools(mcp):
     @mcp.tool()
     async def delete_threat_actor(
         ctx: Context,
-        id: str = Field(description="ID of the threat actor to delete"),
+        id: Optional[str] = Field(default=None, description="ID of the threat actor to delete (required for single item mode)"),
+        ids: Optional[List[str]] = Field(default=None, description="Optional list of threat actor IDs to delete in batch. When provided, the 'id' parameter is ignored."),
     ) -> str:
-        """Delete a threat actor.
+        """Delete a threat actor. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes a threat actor from the threat model.
+        This tool deletes one or more threat actors from the threat model.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the threat actor to delete
+            id: ID of the threat actor to delete (required for single item mode)
+            ids: Optional list of threat actor IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_threat_actor_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_threat_actor_impl, "threat actor")
 
     @mcp.tool()
     async def set_threat_actor_relevance(

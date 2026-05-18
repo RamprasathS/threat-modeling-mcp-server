@@ -1,11 +1,12 @@
 """Assumption Manager functionality for the Cline Threat Modeling MCP Server."""
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Any
 from loguru import logger
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from threat_modeling_mcp_server.models.models import Assumption
+from threat_modeling_mcp_server.utils.batch_utils import batch_add, batch_update, batch_delete
 
 
 # In-memory storage for assumptions
@@ -193,27 +194,35 @@ def register_tools(mcp):
     @mcp.tool()
     async def add_assumption(
         ctx: Context,
-        description: str = Field(description="Description of the assumption"),
-        category: str = Field(description="Category of the assumption (e.g., 'Network', 'Authentication', 'AWS Services')"),
-        impact: str = Field(description="Impact of the assumption on the threat model"),
-        rationale: str = Field(description="Rationale for making this assumption"),
+        description: str = Field(default=None, description="Description of the assumption (required for single item mode)"),
+        category: str = Field(default=None, description="Category of the assumption (e.g., 'Network', 'Authentication', 'AWS Services') (required for single item mode)"),
+        impact: str = Field(default=None, description="Impact of the assumption on the threat model (required for single item mode)"),
+        rationale: str = Field(default=None, description="Rationale for making this assumption (required for single item mode)"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of assumptions to add in batch. Each dict should contain 'description', 'category', 'impact', 'rationale'. When provided, individual parameters are ignored."),
     ) -> str:
-        """Add a new assumption to the threat model.
+        """Add a new assumption to the threat model. Supports batch operations via the 'items' parameter.
 
         Assumptions are statements that we accept as true without requiring further validation.
         They help scope the threat model by establishing boundaries and constraints.
+        For single item: provide description, category, impact, rationale directly.
+        For batch: provide a list of assumption dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            description: Description of the assumption
-            category: Category of the assumption (e.g., 'Network', 'Authentication', 'AWS Services')
-            impact: Impact of the assumption on the threat model
-            rationale: Rationale for making this assumption
+            description: Description of the assumption (required for single item mode)
+            category: Category of the assumption (required for single item mode)
+            impact: Impact of the assumption on the threat model (required for single item mode)
+            rationale: Rationale for making this assumption (required for single item mode)
+            items: Optional list of assumption dicts for batch operation
 
         Returns:
-            A confirmation message with the assumption ID
+            A confirmation message with the assumption ID(s)
         """
-        return await add_assumption_impl(ctx, description, category, impact, rationale)
+        return await batch_add(
+            ctx, items,
+            {"description": description, "category": category, "impact": impact, "rationale": rationale},
+            add_assumption_impl, "assumption"
+        )
 
     @mcp.tool()
     async def list_assumptions(
@@ -250,39 +259,53 @@ def register_tools(mcp):
     @mcp.tool()
     async def update_assumption(
         ctx: Context,
-        id: str = Field(description="ID of the assumption to update"),
+        id: str = Field(default=None, description="ID of the assumption to update (required for single item mode)"),
         description: Optional[str] = Field(default=None, description="New description of the assumption"),
         category: Optional[str] = Field(default=None, description="New category of the assumption"),
         impact: Optional[str] = Field(default=None, description="New impact of the assumption"),
         rationale: Optional[str] = Field(default=None, description="New rationale for the assumption"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of assumptions to update in batch. Each dict must contain 'id' and any fields to update. When provided, individual parameters are ignored."),
     ) -> str:
-        """Update an existing assumption.
+        """Update an existing assumption. Supports batch operations via the 'items' parameter.
+
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of assumption dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the assumption to update
+            id: ID of the assumption to update (required for single item mode)
             description: New description of the assumption
             category: New category of the assumption
             impact: New impact of the assumption
             rationale: New rationale for the assumption
+            items: Optional list of assumption dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_assumption_impl(ctx, id, description, category, impact, rationale)
+        return await batch_update(
+            ctx, items,
+            {"id": id, "description": description, "category": category, "impact": impact, "rationale": rationale},
+            update_assumption_impl, "assumption"
+        )
 
     @mcp.tool()
     async def delete_assumption(
         ctx: Context,
-        id: str = Field(description="ID of the assumption to delete"),
+        id: Optional[str] = Field(default=None, description="ID of the assumption to delete (required for single item mode)"),
+        ids: Optional[List[str]] = Field(default=None, description="Optional list of assumption IDs to delete in batch. When provided, the 'id' parameter is ignored."),
     ) -> str:
-        """Delete an assumption from the threat model.
+        """Delete an assumption from the threat model. Supports batch operations via the 'ids' parameter.
+
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the assumption to delete
+            id: ID of the assumption to delete (required for single item mode)
+            ids: Optional list of assumption IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_assumption_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_assumption_impl, "assumption")

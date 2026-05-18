@@ -9,6 +9,7 @@ from threat_modeling_mcp_server.models.asset_flow_models import (
     LifecycleState, TransformationType, ControlType, AssetFlowLibrary
 )
 from threat_modeling_mcp_server.models.architecture_models import Component, Connection
+from threat_modeling_mcp_server.utils.batch_utils import batch_add, batch_update, batch_delete
 
 
 # Global dictionaries to store assets and flows
@@ -895,44 +896,52 @@ def register_tools(mcp):
     @mcp.tool()
     async def add_asset(
         ctx: Context,
-        name: str,
-        type: str,
-        classification: str,
+        name: str = None,
+        type: str = None,
+        classification: str = None,
         lifecycle_state: Optional[str] = None,
         description: Optional[str] = None,
         owner: Optional[str] = None,
         sensitivity: Optional[int] = None,
         criticality: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Add a new asset to the system.
+        """Add a new asset to the system. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new asset to the system with the specified properties.
+        This tool adds one or more assets to the system.
+        For single item: provide name, type, classification, and optional fields directly.
+        For batch: provide a list of asset dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            name: Name of the asset
-            type: Type of the asset (e.g., 'Data', 'Credential', 'Process')
-            classification: Classification of the asset (e.g., 'Public', 'Confidential')
+            name: Name of the asset (required for single item mode)
+            type: Type of the asset (e.g., 'Data', 'Credential', 'Process') (required for single item mode)
+            classification: Classification of the asset (e.g., 'Public', 'Confidential') (required for single item mode)
             lifecycle_state: Current lifecycle state of the asset
             description: Description of the asset
             owner: Owner of the asset
             sensitivity: Sensitivity level of the asset (1-5)
             criticality: Criticality level of the asset (1-5)
             metadata: Additional metadata for the asset
+            items: Optional list of asset dicts for batch operation
 
         Returns:
-            A confirmation message with the asset ID
+            A confirmation message with the asset ID(s)
         """
-        return await add_asset_impl(
-            ctx, name, type, classification, lifecycle_state, description,
-            owner, sensitivity, criticality, metadata
+        return await batch_add(
+            ctx, items,
+            {"name": name, "type": type, "classification": classification,
+             "lifecycle_state": lifecycle_state, "description": description,
+             "owner": owner, "sensitivity": sensitivity, "criticality": criticality,
+             "metadata": metadata},
+            add_asset_impl, "asset"
         )
     
     @mcp.tool()
     async def update_asset(
         ctx: Context,
-        id: str,
+        id: str = None,
         name: Optional[str] = None,
         type: Optional[str] = None,
         classification: Optional[str] = None,
@@ -942,14 +951,17 @@ def register_tools(mcp):
         sensitivity: Optional[int] = None,
         criticality: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Update an existing asset.
+        """Update an existing asset. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing asset in the system with the specified properties.
+        This tool updates one or more existing assets in the system.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of asset dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the asset to update
+            id: ID of the asset to update (required for single item mode)
             name: New name of the asset
             type: New type of the asset
             classification: New classification of the asset
@@ -959,13 +971,18 @@ def register_tools(mcp):
             sensitivity: New sensitivity level of the asset
             criticality: New criticality level of the asset
             metadata: New metadata for the asset
+            items: Optional list of asset dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_asset_impl(
-            ctx, id, name, type, classification, lifecycle_state,
-            description, owner, sensitivity, criticality, metadata
+        return await batch_update(
+            ctx, items,
+            {"id": id, "name": name, "type": type, "classification": classification,
+             "lifecycle_state": lifecycle_state, "description": description,
+             "owner": owner, "sensitivity": sensitivity, "criticality": criticality,
+             "metadata": metadata},
+            update_asset_impl, "asset"
         )
     
     @mcp.tool()
@@ -1009,27 +1026,31 @@ def register_tools(mcp):
     @mcp.tool()
     async def delete_asset(
         ctx: Context,
-        id: str,
+        id: Optional[str] = None,
+        ids: Optional[List[str]] = None,
     ) -> str:
-        """Delete an asset from the system.
+        """Delete an asset from the system. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes an asset from the system. The asset cannot be deleted if it is used in any flows.
+        This tool deletes one or more assets from the system. Assets cannot be deleted if used in any flows.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the asset to delete
+            id: ID of the asset to delete (required for single item mode)
+            ids: Optional list of asset IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_asset_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_asset_impl, "asset")
     
     @mcp.tool()
     async def add_flow(
         ctx: Context,
-        asset_id: str,
-        source_id: str,
-        destination_id: str,
+        asset_id: str = None,
+        source_id: str = None,
+        destination_id: str = None,
         transformation_type: Optional[str] = None,
         controls: Optional[List[str]] = None,
         description: Optional[str] = None,
@@ -1039,16 +1060,19 @@ def register_tools(mcp):
         authorized: bool = False,
         validated: bool = False,
         risk_level: Optional[int] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Add a new asset flow to the system.
+        """Add a new asset flow to the system. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new asset flow to the system with the specified properties.
+        This tool adds one or more asset flows to the system.
+        For single item: provide asset_id, source_id, destination_id, and optional fields directly.
+        For batch: provide a list of flow dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            asset_id: ID of the asset being transferred
-            source_id: ID of the source component or trust zone
-            destination_id: ID of the destination component or trust zone
+            asset_id: ID of the asset being transferred (required for single item mode)
+            source_id: ID of the source component or trust zone (required for single item mode)
+            destination_id: ID of the destination component or trust zone (required for single item mode)
             transformation_type: Type of transformation applied to the asset
             controls: List of security controls applied to the flow
             description: Description of the flow
@@ -1058,20 +1082,25 @@ def register_tools(mcp):
             authorized: Whether the flow is authorized
             validated: Whether the flow is validated
             risk_level: Risk level of the flow (1-5)
+            items: Optional list of flow dicts for batch operation
 
         Returns:
-            A confirmation message with the flow ID
+            A confirmation message with the flow ID(s)
         """
-        return await add_flow_impl(
-            ctx, asset_id, source_id, destination_id, transformation_type,
-            controls, description, protocol, encryption, authenticated,
-            authorized, validated, risk_level
+        return await batch_add(
+            ctx, items,
+            {"asset_id": asset_id, "source_id": source_id, "destination_id": destination_id,
+             "transformation_type": transformation_type, "controls": controls,
+             "description": description, "protocol": protocol, "encryption": encryption,
+             "authenticated": authenticated, "authorized": authorized,
+             "validated": validated, "risk_level": risk_level},
+            add_flow_impl, "flow"
         )
     
     @mcp.tool()
     async def update_flow(
         ctx: Context,
-        id: str,
+        id: str = None,
         asset_id: Optional[str] = None,
         source_id: Optional[str] = None,
         destination_id: Optional[str] = None,
@@ -1084,14 +1113,17 @@ def register_tools(mcp):
         authorized: Optional[bool] = None,
         validated: Optional[bool] = None,
         risk_level: Optional[int] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Update an existing asset flow.
+        """Update an existing asset flow. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing asset flow in the system with the specified properties.
+        This tool updates one or more existing asset flows in the system.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of flow dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the flow to update
+            id: ID of the flow to update (required for single item mode)
             asset_id: New ID of the asset being transferred
             source_id: New ID of the source component or trust zone
             destination_id: New ID of the destination component or trust zone
@@ -1104,14 +1136,19 @@ def register_tools(mcp):
             authorized: New authorization status
             validated: New validation status
             risk_level: New risk level of the flow (1-5)
+            items: Optional list of flow dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_flow_impl(
-            ctx, id, asset_id, source_id, destination_id, transformation_type,
-            controls, description, protocol, encryption, authenticated,
-            authorized, validated, risk_level
+        return await batch_update(
+            ctx, items,
+            {"id": id, "asset_id": asset_id, "source_id": source_id,
+             "destination_id": destination_id, "transformation_type": transformation_type,
+             "controls": controls, "description": description, "protocol": protocol,
+             "encryption": encryption, "authenticated": authenticated,
+             "authorized": authorized, "validated": validated, "risk_level": risk_level},
+            update_flow_impl, "flow"
         )
     
     @mcp.tool()
@@ -1155,20 +1192,24 @@ def register_tools(mcp):
     @mcp.tool()
     async def delete_flow(
         ctx: Context,
-        id: str,
+        id: Optional[str] = None,
+        ids: Optional[List[str]] = None,
     ) -> str:
-        """Delete an asset flow from the system.
+        """Delete an asset flow from the system. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes an asset flow from the system.
+        This tool deletes one or more asset flows from the system.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the flow to delete
+            id: ID of the flow to delete (required for single item mode)
+            ids: Optional list of flow IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_flow_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_flow_impl, "flow")
     
     @mcp.tool()
     async def get_asset_flow_analysis_plan(

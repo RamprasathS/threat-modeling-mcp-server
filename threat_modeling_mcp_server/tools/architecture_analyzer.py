@@ -11,6 +11,7 @@ from threat_modeling_mcp_server.models.architecture_models import (
     ComponentType, ServiceProvider, Protocol, DataStoreType,
     DataClassification, BackupFrequency, AWSService
 )
+from threat_modeling_mcp_server.utils.batch_utils import batch_add, batch_update, batch_delete
 
 
 # Global state
@@ -801,37 +802,47 @@ def register_tools(mcp):
     @mcp.tool()
     async def add_component(
         ctx: Context,
-        name: str = Field(description="Name of the component"),
-        type: str = Field(description="Type of the component (e.g., 'Compute', 'Storage', 'Network')"),
+        name: str = Field(default=None, description="Name of the component (required for single item mode)"),
+        type: str = Field(default=None, description="Type of the component (e.g., 'Compute', 'Storage', 'Network') (required for single item mode)"),
         service_provider: Optional[str] = Field(default=None, description="Provider of the service (e.g., 'AWS', 'Azure', 'GCP')"),
         specific_service: Optional[str] = Field(default=None, description="Specific service name (e.g., 'EC2', 'S3', 'Lambda')"),
         version: Optional[str] = Field(default=None, description="Version of the component"),
         description: Optional[str] = Field(default=None, description="Description of the component"),
         configuration: Optional[Dict[str, Any]] = Field(default=None, description="Configuration details of the component"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of components to add in batch. Each dict should contain 'name', 'type', and optionally 'service_provider', 'specific_service', 'version', 'description', 'configuration'. When provided, individual parameters are ignored."),
     ) -> str:
-        """Add a new component to the architecture.
+        """Add a new component to the architecture. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new component to the system architecture.
+        This tool adds one or more components to the system architecture.
+        For single item: provide name, type, and optional fields directly.
+        For batch: provide a list of component dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            name: Name of the component
-            type: Type of the component (e.g., 'Compute', 'Storage', 'Network')
+            name: Name of the component (required for single item mode)
+            type: Type of the component (required for single item mode)
             service_provider: Provider of the service (e.g., 'AWS', 'Azure', 'GCP')
             specific_service: Specific service name (e.g., 'EC2', 'S3', 'Lambda')
             version: Version of the component
             description: Description of the component
             configuration: Configuration details of the component
+            items: Optional list of component dicts for batch operation
 
         Returns:
-            A confirmation message with the component ID
+            A confirmation message with the component ID(s)
         """
-        return await add_component_impl(ctx, name, type, service_provider, specific_service, version, description, configuration)
+        return await batch_add(
+            ctx, items,
+            {"name": name, "type": type, "service_provider": service_provider,
+             "specific_service": specific_service, "version": version,
+             "description": description, "configuration": configuration},
+            add_component_impl, "component"
+        )
 
     @mcp.tool()
     async def update_component(
         ctx: Context,
-        id: str = Field(description="ID of the component to update"),
+        id: str = Field(default=None, description="ID of the component to update (required for single item mode)"),
         name: Optional[str] = Field(default=None, description="New name of the component"),
         type: Optional[str] = Field(default=None, description="New type of the component"),
         service_provider: Optional[str] = Field(default=None, description="New provider of the service"),
@@ -839,14 +850,17 @@ def register_tools(mcp):
         version: Optional[str] = Field(default=None, description="New version of the component"),
         description: Optional[str] = Field(default=None, description="New description of the component"),
         configuration: Optional[Dict[str, Any]] = Field(default=None, description="New configuration details of the component"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of components to update in batch. Each dict must contain 'id' and any fields to update. When provided, individual parameters are ignored."),
     ) -> str:
-        """Update an existing component in the architecture.
+        """Update an existing component in the architecture. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing component in the system architecture.
+        This tool updates one or more existing components in the system architecture.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of component dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the component to update
+            id: ID of the component to update (required for single item mode)
             name: New name of the component
             type: New type of the component
             service_provider: New provider of the service
@@ -854,11 +868,18 @@ def register_tools(mcp):
             version: New version of the component
             description: New description of the component
             configuration: New configuration details of the component
+            items: Optional list of component dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_component_impl(ctx, id, name, type, service_provider, specific_service, version, description, configuration)
+        return await batch_update(
+            ctx, items,
+            {"id": id, "name": name, "type": type, "service_provider": service_provider,
+             "specific_service": specific_service, "version": version,
+             "description": description, "configuration": configuration},
+            update_component_impl, "component"
+        )
 
     @mcp.tool()
     async def list_components(
@@ -881,78 +902,102 @@ def register_tools(mcp):
     @mcp.tool()
     async def delete_component(
         ctx: Context,
-        id: str = Field(description="ID of the component to delete"),
+        id: Optional[str] = Field(default=None, description="ID of the component to delete (required for single item mode)"),
+        ids: Optional[List[str]] = Field(default=None, description="Optional list of component IDs to delete in batch. When provided, the 'id' parameter is ignored."),
     ) -> str:
-        """Delete a component from the architecture.
+        """Delete a component from the architecture. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes a component from the system architecture.
+        This tool deletes one or more components from the system architecture.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the component to delete
+            id: ID of the component to delete (required for single item mode)
+            ids: Optional list of component IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_component_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_component_impl, "component")
     
     @mcp.tool()
     async def add_connection(
         ctx: Context,
-        source_id: str = Field(description="ID of the source component"),
-        destination_id: str = Field(description="ID of the destination component"),
+        source_id: str = Field(default=None, description="ID of the source component (required for single item mode)"),
+        destination_id: str = Field(default=None, description="ID of the destination component (required for single item mode)"),
         protocol: Optional[str] = Field(default=None, description="Protocol used for the connection (e.g., 'HTTP', 'HTTPS', 'TCP')"),
         port: Optional[int] = Field(default=None, description="Port used for the connection"),
         encryption: bool = Field(default=False, description="Whether the connection is encrypted"),
         description: Optional[str] = Field(default=None, description="Description of the connection"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of connections to add in batch. Each dict should contain 'source_id', 'destination_id', and optionally 'protocol', 'port', 'encryption', 'description'. When provided, individual parameters are ignored."),
     ) -> str:
-        """Add a new connection to the architecture.
+        """Add a new connection to the architecture. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new connection between two components in the system architecture.
+        This tool adds one or more connections between components in the system architecture.
+        For single item: provide source_id, destination_id, and optional fields directly.
+        For batch: provide a list of connection dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            source_id: ID of the source component
-            destination_id: ID of the destination component
+            source_id: ID of the source component (required for single item mode)
+            destination_id: ID of the destination component (required for single item mode)
             protocol: Protocol used for the connection (e.g., 'HTTP', 'HTTPS', 'TCP')
             port: Port used for the connection
             encryption: Whether the connection is encrypted
             description: Description of the connection
+            items: Optional list of connection dicts for batch operation
 
         Returns:
-            A confirmation message with the connection ID
+            A confirmation message with the connection ID(s)
         """
-        return await add_connection_impl(ctx, source_id, destination_id, protocol, port, encryption, description)
+        return await batch_add(
+            ctx, items,
+            {"source_id": source_id, "destination_id": destination_id,
+             "protocol": protocol, "port": port, "encryption": encryption,
+             "description": description},
+            add_connection_impl, "connection"
+        )
 
     @mcp.tool()
     async def update_connection(
         ctx: Context,
-        id: str = Field(description="ID of the connection to update"),
+        id: str = Field(default=None, description="ID of the connection to update (required for single item mode)"),
         source_id: Optional[str] = Field(default=None, description="New ID of the source component"),
         destination_id: Optional[str] = Field(default=None, description="New ID of the destination component"),
         protocol: Optional[str] = Field(default=None, description="New protocol used for the connection"),
         port: Optional[int] = Field(default=None, description="New port used for the connection"),
         encryption: Optional[bool] = Field(default=None, description="New encryption status"),
         description: Optional[str] = Field(default=None, description="New description of the connection"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of connections to update in batch. Each dict must contain 'id' and any fields to update. When provided, individual parameters are ignored."),
     ) -> str:
-        """Update an existing connection in the architecture.
+        """Update an existing connection in the architecture. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing connection in the system architecture.
+        This tool updates one or more existing connections in the system architecture.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of connection dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the connection to update
+            id: ID of the connection to update (required for single item mode)
             source_id: New ID of the source component
             destination_id: New ID of the destination component
             protocol: New protocol used for the connection
             port: New port used for the connection
             encryption: New encryption status
             description: New description of the connection
+            items: Optional list of connection dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_connection_impl(ctx, id, source_id, destination_id, protocol, port, encryption, description)
+        return await batch_update(
+            ctx, items,
+            {"id": id, "source_id": source_id, "destination_id": destination_id,
+             "protocol": protocol, "port": port, "encryption": encryption,
+             "description": description},
+            update_connection_impl, "connection"
+        )
 
     @mcp.tool()
     async def list_connections(
@@ -975,78 +1020,102 @@ def register_tools(mcp):
     @mcp.tool()
     async def delete_connection(
         ctx: Context,
-        id: str = Field(description="ID of the connection to delete"),
+        id: Optional[str] = Field(default=None, description="ID of the connection to delete (required for single item mode)"),
+        ids: Optional[List[str]] = Field(default=None, description="Optional list of connection IDs to delete in batch. When provided, the 'id' parameter is ignored."),
     ) -> str:
-        """Delete a connection from the architecture.
+        """Delete a connection from the architecture. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes a connection from the system architecture.
+        This tool deletes one or more connections from the system architecture.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the connection to delete
+            id: ID of the connection to delete (required for single item mode)
+            ids: Optional list of connection IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_connection_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_connection_impl, "connection")
 
     @mcp.tool()
     async def add_data_store(
         ctx: Context,
-        name: str = Field(description="Name of the data store"),
-        type: str = Field(description="Type of the data store (e.g., 'Relational', 'NoSQL', 'Object Storage')"),
-        classification: str = Field(description="Classification of the data (e.g., 'Public', 'Internal', 'Confidential')"),
+        name: str = Field(default=None, description="Name of the data store (required for single item mode)"),
+        type: str = Field(default=None, description="Type of the data store (e.g., 'Relational', 'NoSQL', 'Object Storage') (required for single item mode)"),
+        classification: str = Field(default=None, description="Classification of the data (e.g., 'Public', 'Internal', 'Confidential') (required for single item mode)"),
         encryption_at_rest: bool = Field(default=False, description="Whether the data is encrypted at rest"),
         backup_frequency: Optional[str] = Field(default=None, description="Frequency of backups (e.g., 'Hourly', 'Daily', 'Weekly')"),
         description: Optional[str] = Field(default=None, description="Description of the data store"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of data stores to add in batch. Each dict should contain 'name', 'type', 'classification', and optionally 'encryption_at_rest', 'backup_frequency', 'description'. When provided, individual parameters are ignored."),
     ) -> str:
-        """Add a new data store to the architecture.
+        """Add a new data store to the architecture. Supports batch operations via the 'items' parameter.
 
-        This tool adds a new data store to the system architecture.
+        This tool adds one or more data stores to the system architecture.
+        For single item: provide name, type, classification, and optional fields directly.
+        For batch: provide a list of data store dicts in the 'items' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            name: Name of the data store
-            type: Type of the data store (e.g., 'Relational', 'NoSQL', 'Object Storage')
-            classification: Classification of the data (e.g., 'Public', 'Internal', 'Confidential')
+            name: Name of the data store (required for single item mode)
+            type: Type of the data store (required for single item mode)
+            classification: Classification of the data (required for single item mode)
             encryption_at_rest: Whether the data is encrypted at rest
             backup_frequency: Frequency of backups (e.g., 'Hourly', 'Daily', 'Weekly')
             description: Description of the data store
+            items: Optional list of data store dicts for batch operation
 
         Returns:
-            A confirmation message with the data store ID
+            A confirmation message with the data store ID(s)
         """
-        return await add_data_store_impl(ctx, name, type, classification, encryption_at_rest, backup_frequency, description)
+        return await batch_add(
+            ctx, items,
+            {"name": name, "type": type, "classification": classification,
+             "encryption_at_rest": encryption_at_rest, "backup_frequency": backup_frequency,
+             "description": description},
+            add_data_store_impl, "data store"
+        )
 
     @mcp.tool()
     async def update_data_store(
         ctx: Context,
-        id: str = Field(description="ID of the data store to update"),
+        id: str = Field(default=None, description="ID of the data store to update (required for single item mode)"),
         name: Optional[str] = Field(default=None, description="New name of the data store"),
         type: Optional[str] = Field(default=None, description="New type of the data store"),
         classification: Optional[str] = Field(default=None, description="New classification of the data"),
         encryption_at_rest: Optional[bool] = Field(default=None, description="New encryption status"),
         backup_frequency: Optional[str] = Field(default=None, description="New frequency of backups"),
         description: Optional[str] = Field(default=None, description="New description of the data store"),
+        items: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of data stores to update in batch. Each dict must contain 'id' and any fields to update. When provided, individual parameters are ignored."),
     ) -> str:
-        """Update an existing data store in the architecture.
+        """Update an existing data store in the architecture. Supports batch operations via the 'items' parameter.
 
-        This tool updates an existing data store in the system architecture.
+        This tool updates one or more existing data stores in the system architecture.
+        For single item: provide id and fields to update directly.
+        For batch: provide a list of data store dicts in the 'items' parameter (each must include 'id').
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the data store to update
+            id: ID of the data store to update (required for single item mode)
             name: New name of the data store
             type: New type of the data store
             classification: New classification of the data
             encryption_at_rest: New encryption status
             backup_frequency: New frequency of backups
             description: New description of the data store
+            items: Optional list of data store dicts for batch update
 
         Returns:
             A confirmation message
         """
-        return await update_data_store_impl(ctx, id, name, type, classification, encryption_at_rest, backup_frequency, description)
+        return await batch_update(
+            ctx, items,
+            {"id": id, "name": name, "type": type, "classification": classification,
+             "encryption_at_rest": encryption_at_rest, "backup_frequency": backup_frequency,
+             "description": description},
+            update_data_store_impl, "data store"
+        )
 
     @mcp.tool()
     async def list_data_stores(
@@ -1069,20 +1138,24 @@ def register_tools(mcp):
     @mcp.tool()
     async def delete_data_store(
         ctx: Context,
-        id: str = Field(description="ID of the data store to delete"),
+        id: Optional[str] = Field(default=None, description="ID of the data store to delete (required for single item mode)"),
+        ids: Optional[List[str]] = Field(default=None, description="Optional list of data store IDs to delete in batch. When provided, the 'id' parameter is ignored."),
     ) -> str:
-        """Delete a data store from the architecture.
+        """Delete a data store from the architecture. Supports batch operations via the 'ids' parameter.
 
-        This tool deletes a data store from the system architecture.
+        This tool deletes one or more data stores from the system architecture.
+        For single item: provide the id directly.
+        For batch: provide a list of IDs in the 'ids' parameter.
 
         Args:
             ctx: MCP context for logging and error handling
-            id: ID of the data store to delete
+            id: ID of the data store to delete (required for single item mode)
+            ids: Optional list of data store IDs for batch deletion
 
         Returns:
             A confirmation message
         """
-        return await delete_data_store_impl(ctx, id)
+        return await batch_delete(ctx, ids, id, delete_data_store_impl, "data store")
 
     @mcp.tool()
     async def get_architecture_analysis_plan(
